@@ -1,17 +1,16 @@
 # Allo Inventory Reservations
 
-A focused Next.js take-home implementation for checkout-time inventory holds across multiple warehouses.
+This is my implementation of Allo's checkout reservation exercise. It holds inventory for a short checkout window, confirms the hold when payment succeeds, and releases it when the user cancels or the reservation expires.
 
 Live app: https://allo-health-theta.vercel.app
 
-## What is built
+## What I built
 
-- Product listing with available stock per warehouse.
-- Reservation creation with a 10 minute hold window.
-- Reservation detail page with a live expiry countdown.
-- Confirm and cancel flows that update the UI without a manual refresh.
-- API errors for insufficient stock (`409`) and expired reservations (`410`) are shown to the user.
-- Postgres-backed reservation logic using row-level locks for concurrency safety.
+- A product listing page with stock split by warehouse.
+- A checkout reservation page with reservation details, status, and a live countdown.
+- Reserve, confirm purchase, and cancel flows.
+- Visible `409` and `410` errors instead of silently hiding failed requests.
+- Postgres-backed reservation logic using row-level locks for the race condition case.
 
 ## Stack
 
@@ -22,22 +21,22 @@ Live app: https://allo-health-theta.vercel.app
 - Zod
 - Tailwind CSS
 
-## Local Setup
+## Local setup
 
-Create a local Postgres database, for example:
+Create a local Postgres database:
 
 ```sql
 CREATE DATABASE allo;
 ```
 
-Create `.env` from `.env.example`:
+Create `.env` using `.env.example` as the template:
 
 ```bash
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/allo?schema=public"
 RESERVATION_TTL_MINUTES="10"
 ```
 
-Install dependencies and set up the database:
+Then run:
 
 ```bash
 npm install
@@ -51,10 +50,7 @@ Open `http://localhost:3000`.
 
 ## Deployment
 
-Recommended deployment:
-
-- App: Vercel
-- Database: Neon or Supabase Postgres
+The submitted version is deployed on Vercel and uses Neon Postgres.
 
 Set these environment variables in Vercel:
 
@@ -63,14 +59,14 @@ DATABASE_URL="postgresql://..."
 RESERVATION_TTL_MINUTES="10"
 ```
 
-For hosted Postgres, run migrations and seed from your local machine using the hosted `DATABASE_URL`:
+I ran the migrations and seed against Neon from my local machine:
 
 ```bash
 npm run prisma:deploy
 npm run prisma:seed
 ```
 
-The `postinstall` script runs `prisma generate`, so Vercel has a generated Prisma Client during build.
+There is also a `postinstall` script so Prisma Client is generated during the Vercel build.
 
 ## API
 
@@ -83,11 +79,11 @@ The `postinstall` script runs `prisma generate`, so Vercel has a generated Prism
 | `POST` | `/api/reservations/:id/confirm` | Confirms a pending reservation. Returns `410` if it expired. |
 | `POST` | `/api/reservations/:id/release` | Releases a pending reservation early. |
 
-## Concurrency Strategy
+## Concurrency
 
 The critical code is in `src/lib/reservations.ts`.
 
-When creating a reservation, the API opens a Postgres transaction and locks the matching `StockLevel` row:
+When a reservation is created, the API opens a Postgres transaction and locks the matching `StockLevel` row:
 
 ```sql
 SELECT id, "totalUnits", "reservedUnits"
@@ -97,31 +93,31 @@ WHERE "productId" = $1
 FOR UPDATE
 ```
 
-Only one transaction can hold that row lock at a time. The server then checks:
+Only one transaction can hold that lock at a time. After the lock is acquired, the server checks:
 
 ```txt
 available = totalUnits - reservedUnits
 ```
 
-If there is enough stock, it increments `reservedUnits` and creates a pending reservation in the same transaction. If two checkout requests race for the final unit, one transaction commits first and the second sees the updated `reservedUnits`, then returns `409`.
+If there is enough stock, it increments `reservedUnits` and creates the pending reservation in the same transaction. If two checkout requests race for the final unit, one commits first and the other sees the updated `reservedUnits`, then returns `409`.
 
-Confirming a reservation also happens in a transaction. The reservation row and stock row are locked. A valid confirmation decrements both `totalUnits` and `reservedUnits`, because the held unit has become a real sale.
+Confirming a reservation also happens in a transaction. A valid confirmation decrements both `totalUnits` and `reservedUnits`, because the held unit has become a real sale.
 
-## Expiry Strategy
+## Expiry
 
-This implementation uses lazy cleanup. Before reads and reservation creation, the app releases expired pending reservations:
+I used lazy cleanup for expiry. Before product reads and reservation creation, the app releases expired pending reservations:
 
 - marks expired `PENDING` reservations as `RELEASED`
 - decrements the corresponding `StockLevel.reservedUnits`
 
-This keeps the demo deployable without a background worker. In production, I would add a Vercel Cron route such as `/api/cron/release-expired` that calls the same cleanup helper every minute. The lazy cleanup would remain as a defensive fallback.
+This keeps the app simple to deploy without a background worker. For a production version, I would add a Vercel Cron route that calls the same cleanup helper on a schedule, while keeping lazy cleanup as a fallback.
 
 ## Trade-offs
 
-- Idempotency keys are not implemented yet. The next step would be an `IdempotencyKey` table storing request hashes and original responses for `POST /api/reservations` and confirm.
-- There is no authentication or customer model; reservations are anonymous for the exercise.
-- The UI reserves one unit at a time to keep the core flow clear.
-- Expiry is lazy rather than a dedicated worker or cron job.
+- I did not implement the optional idempotency-key bonus. If I added it, I would store the key, request hash, status code, and response body for reservation and confirm requests.
+- I kept reservations anonymous. In a real checkout flow, reservations would belong to a customer, cart, or order.
+- The UI reserves one unit at a time. The API accepts quantities, but I kept the UI narrow so the concurrency path stayed easy to reason about.
+- Expiry is handled with lazy cleanup instead of a cron job. For production, I would add a Vercel Cron route that calls the same cleanup helper regularly.
 
 ## Useful Commands
 
