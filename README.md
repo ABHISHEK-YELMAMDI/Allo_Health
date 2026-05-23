@@ -47,6 +47,29 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+## Deployment
+
+Recommended deployment:
+
+- App: Vercel
+- Database: Neon or Supabase Postgres
+
+Set these environment variables in Vercel:
+
+```bash
+DATABASE_URL="postgresql://..."
+RESERVATION_TTL_MINUTES="10"
+```
+
+For hosted Postgres, run migrations and seed from your local machine using the hosted `DATABASE_URL`:
+
+```bash
+npm run prisma:deploy
+npm run prisma:seed
+```
+
+The `postinstall` script runs `prisma generate`, so Vercel has a generated Prisma Client during build.
+
 ## API
 
 | Method | Path | Behaviour |
@@ -104,6 +127,7 @@ This keeps the demo deployable without a background worker. In production, I wou
 npm run lint
 npm run build
 npm run prisma:migrate
+npm run prisma:deploy
 npm run prisma:seed
 npm run test:concurrency
 ```
