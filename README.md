@@ -2,6 +2,8 @@
 
 A focused Next.js take-home implementation for checkout-time inventory holds across multiple warehouses.
 
+Live app: https://allo-health-theta.vercel.app
+
 ## What is built
 
 - Product listing with available stock per warehouse.
